@@ -62,6 +62,12 @@ connect({
       return true;
     }
 
+    // const updatedFields = Object.keys(
+    //   createOrUpdateItemPayload.data.attributes as object
+    // );
+
+    // console.log(updatedFields)
+
     let fieldUsingThisPlugin: Array<string> = [];
 
     // Generate list of fields using this plugin, but exclude fields with a active slug validator.
@@ -79,9 +85,7 @@ connect({
       updateAllChildrenSlugs(
         ctx.currentUserAccessToken as string,
         createOrUpdateItemPayload.data.relationships!.item_type!.data.id,
-        (createOrUpdateItemPayload.data as any).id, //i shouldn't have to cast this to any
         field,
-        createOrUpdateItemPayload.data.attributes![field] as string
       );
     });
 
