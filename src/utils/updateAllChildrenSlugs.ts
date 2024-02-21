@@ -1,6 +1,12 @@
 // @ts-nocheck
 import { buildClient } from "@datocms/cma-client-browser";
 
+const addUrlPrefix = () => {
+  const prefixParams = []
+  // field.attributes.appearance.parameters.url_prefix
+  return prefixParams
+}
+
 const addTreeFields = (pages, tree, slugFieldKey) => {
   // Add uri and children to pageObjects.
   pages.forEach(page => {
@@ -14,6 +20,7 @@ const addTreeFields = (pages, tree, slugFieldKey) => {
 }
 
 const getPageUri = (page, changedfield, slugFieldKey, tree) => {
+  // console.log({page, changedfield, slugFieldKey, tree})
   const slugFieldValue = page.id === changedfield.id && changedfield.attributes[slugFieldKey] ? changedfield.attributes[slugFieldKey] : tree[page.id].uri;
   const uri = slugFieldValue.split('/');
   return uri[uri.length - 1]
@@ -28,7 +35,7 @@ const addTreeUriAndChildData = (pages, changedfield, slugFieldKey, tree) => {
       params.unshift( 
         getPageUri(tree[currentPage.parent_id], changedfield, slugFieldKey, tree)
       );
-      
+
       // Add Children to parent page. 
       const isNewChildCheck = tree[currentPage.parent_id].children.filter(childPage => childPage.id === tree[currentPage.id].id);
       const isNewValue = isNewChildCheck.length === 0;
@@ -49,10 +56,10 @@ const addTreeUriAndChildData = (pages, changedfield, slugFieldKey, tree) => {
   return tree;
 }
 
-const generateTree = (pages, changedfield, slugFieldKey) => {
+const generateTree = (pages, changedfield, slugFieldKey, slug_prefix) => {
   let tree = {};
   tree = addTreeFields(pages, tree, slugFieldKey);
-  tree = addTreeUriAndChildData(pages, changedfield, slugFieldKey, tree);
+  tree = addTreeUriAndChildData(pages, changedfield, slugFieldKey, tree, slug_prefix);
   return tree;
 }
 
@@ -74,6 +81,7 @@ export default async function updateAllChildrenSlugs(
   apiToken: string,
   modelID: string,
   field: any,
+  slug_prefix: string | null
 ) {
   const slugFieldKey = Object.keys(field.attributes as object)[0];
   const client = buildClient({
@@ -86,15 +94,17 @@ export default async function updateAllChildrenSlugs(
   }));
 
   // Generate page relation tree
-  const tree = generateTree(items, field, slugFieldKey);
+  const tree = generateTree(items, field, slugFieldKey, slug_prefix);
+  console.log(tree)
 
   // Update page slug that was changed and all nested children
   const changedPage = tree[field.id];
   const changedPagesList = getChangedPagesList(changedPage);
   if(changedPagesList.length){
     changedPagesList.forEach(async (page) => {
+      console.log(page.uri)
       await client.items.update(page.id, {
-        [slugFieldKey]: page.uri,
+        [slugFieldKey]: `${page.uri}`,
       });
     });
   }

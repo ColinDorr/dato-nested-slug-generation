@@ -6,16 +6,28 @@ import SlugExtension from "./entrypoints/SlugExtension";
 import 'datocms-react-ui/styles.css';
 import updateAllChildrenSlugs from "./utils/updateAllChildrenSlugs";
 
+
+const getSlugFieldPrefix = (field) => {
+  let slug_prefix = null
+  if (field.attributes?.appearance?.parameters?.url_prefix) {
+    const params = field.attributes.appearance.parameters.url_prefix.split("/").filter(e => e.length > 0);
+    slug_prefix = params.join("/");
+  }
+  return slug_prefix
+} 
+
 const handelNestedContent = async (createOrUpdateItemPayload, ctx) => {
   if (ctx.plugin.attributes.parameters.onPublish) {
     return true;
   }
   
   let fieldUsingThisPlugin: Array<string> = [];
+  let slug_prefix = null;
 
   // Generate list of fields using this plugin, but exclude fields with a active slug validator.
   (await ctx.loadFieldsUsingPlugin()).map((field) => {
     if(!field.attributes.validators?.slug_format){
+      slug_prefix = getSlugFieldPrefix(field);
       fieldUsingThisPlugin.push(field.attributes.api_key);
     }
   });
@@ -30,7 +42,7 @@ const handelNestedContent = async (createOrUpdateItemPayload, ctx) => {
     if (updatedFields.includes(field)) {
       updatedField = createOrUpdateItemPayload.data;
       return;
-    }
+    }    
   });
 
   if (!updatedField) {
@@ -41,6 +53,7 @@ const handelNestedContent = async (createOrUpdateItemPayload, ctx) => {
     ctx.currentUserAccessToken as string,
     createOrUpdateItemPayload.data.relationships!.item_type!.data.id,
     updatedField,
+    slug_prefix
   );
 }
 
