@@ -1,13 +1,16 @@
 // @ts-nocheck
-import { connect, ItemType, IntentCtx, RenderFieldExtensionCtx } from 'datocms-plugin-sdk';
+import { connect, IntentCtx, RenderFieldExtensionCtx } from 'datocms-plugin-sdk';
 import { render } from './utils/render';
 import ConfigScreen from './entrypoints/ConfigScreen';
-// import ParentSelection from './entrypoints/Sidebars/ParentSelection';
 import SlugExtension from "./entrypoints/SlugExtension";
 import 'datocms-react-ui/styles.css';
 import updateAllChildrenSlugs from "./utils/updateAllChildrenSlugs";
 
 const handelNestedContent = async (createOrUpdateItemPayload, ctx) => {
+  if (ctx.plugin.attributes.parameters.onPublish) {
+    return true;
+  }
+  
   let fieldUsingThisPlugin: Array<string> = [];
 
   // Generate list of fields using this plugin, but exclude fields with a active slug validator.
@@ -19,7 +22,6 @@ const handelNestedContent = async (createOrUpdateItemPayload, ctx) => {
 
   // If no field use this plugin, continue normal dato functionalities.
   if (!fieldUsingThisPlugin) { return true; };
-
 
   // Check if field is updated and is bound slug field
   const updatedFields = Object.keys(createOrUpdateItemPayload.data.attributes as object);
@@ -34,18 +36,6 @@ const handelNestedContent = async (createOrUpdateItemPayload, ctx) => {
   if (!updatedField) {
     return true;
   }
-  
-  // console.log(updatedField);
-
-  // console.log(fieldUsingThisPlugin);
-  // (   as Array<string>).forEach((field) => {
-  //   updateAllChildrenSlugs(
-  //     ctx.currentUserAccessToken as string,
-  //     createOrUpdateItemPayload.data.relationships!.item_type!.data.id,
-  //     field,
-  //   );
-  // });
-
 
   return updateAllChildrenSlugs(
     ctx.currentUserAccessToken as string,
@@ -55,12 +45,6 @@ const handelNestedContent = async (createOrUpdateItemPayload, ctx) => {
 }
 
 connect({
-  // async onBeforeItemsPublish(createOrUpdateItemPayload, ctx) {
-  // async onBeforeItemUpsert(createOrUpdateItemPayload, ctx) {
-  //   ctx.notice('Hi there!');
-  //   return true
-  // },
-
   // Render plugin config screen
   renderConfigScreen(ctx) {
     return render(<ConfigScreen ctx={ctx} />);
@@ -83,12 +67,12 @@ connect({
         return render(<SlugExtension ctx={ctx} />);
     }
   },
-  
 
   // Update when page is saved
-    // async onBeforeItemsPublish(createOrUpdateItemPayload, ctx) {
   async onBeforeItemUpsert(createOrUpdateItemPayload, ctx) {
-    const changeList = handelNestedContent(createOrUpdateItemPayload, ctx);
+    const changeList = await handelNestedContent(createOrUpdateItemPayload, ctx);
+
+    console.log(changeList)
     if(changeList.length) {
       console.log(changeList)
       ctx.notice(changeList.map(e => e.uri).join(', '));

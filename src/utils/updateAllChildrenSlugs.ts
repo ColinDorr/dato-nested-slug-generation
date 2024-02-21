@@ -21,21 +21,45 @@ const addTreeFields = (pages, tree, slugFieldKey) => {
   return tree;
 }
 
-const addTreeUriAndChildData = (pages, tree) => {
+const getPageUri = (page, changedfield, slugFieldKey, tree) => {
+
+  console.log({
+    slugFieldKey,
+    check: page.id === changedfield.id,
+    changedfield: changedfield.attributes[slugFieldKey],
+    page,
+    treePage:  tree[page.id]
+  })
+
+  const slugFieldValue = page.id === changedfield.id && changedfield.attributes[slugFieldKey] ? changedfield.attributes[slugFieldKey] : tree[page.id].uri;
+  const uri = slugFieldValue.split('/');
+  console.log({
+    page, changedfield, tree,
+    isChanged: page.id === changedfield.id,
+    pageId: page.id,
+    changedfieldId: changedfield.id,
+    uri: uri,
+    slugFieldValue,
+    result: uri[uri.length - 1]
+  })
+  return uri[uri.length - 1]
+}
+
+const addTreeUriAndChildData = (pages, changedfield, slugFieldKey, tree) => {
   pages.forEach(page => {
     const params = [];
     
     let currentPage = page;
     while (currentPage && currentPage.parent_id !== null) {      
       // Get URI op parent element.
-      const uri = tree[currentPage.parent_id].uri.split('/');
-      params.unshift(uri[uri.length - 1]);
+      params.unshift( 
+        getPageUri(tree[currentPage.parent_id], changedfield, slugFieldKey, tree)
+      );
       
       // Add Children to parent page. 
-      // TODO: CHECK WERKT NOG NIET CORRECT.
-      // DUBBELE CHILD ENTRIES WORDEN NOG GETOOND, BIJVOORBEEL "club-sessions"
-      const isNewChild = tree[currentPage.parent_id].children.filter(child => child.id !== currentPage.id);
-      if(isNewChild.length === 0){
+      const isNewChildCheck = tree[currentPage.parent_id].children.filter(childPage => childPage.id === tree[currentPage.id].id);
+      const isNewValue = isNewChildCheck.length === 0;
+      if (isNewValue) {
         tree[currentPage.parent_id].children.push(tree[currentPage.id]);
       }
 
@@ -44,22 +68,37 @@ const addTreeUriAndChildData = (pages, tree) => {
     }
 
     // Add current uri and return full path as uri to tree.
-    const uri = tree[page.id].uri.split('/')
-    params.push(uri[uri.length - 1]);
-    tree[page.id].uri = `${params.join('/')}`;
+    console.log("uri 2");
+    params.push(
+      getPageUri(page.id, changedfield, slugFieldKey, tree)
+    );
+    // tree[page.id].uri = `${params.join('/')}`;
   });
 
-  console.log(`Generate tree - Run ${run}`);
+  console.log(`Generate tree:____________`);
   console.log(tree)
-  console.log("---------------------------");
+  console.log("__________________________");
   return tree;
 }
 
-const generateTree = (pages, slugFieldKey) => {
+const generateTree = (pages, changedfield, slugFieldKey) => {
   let tree = {};
   tree = addTreeFields(pages, tree, slugFieldKey);
-  tree = addTreeUriAndChildData(pages, tree);
+  tree = addTreeUriAndChildData(pages, changedfield, slugFieldKey, tree);
   return tree;
+}
+const getChangedPagesList = (page) => {
+  const changedPagesList = [];
+  const flatten = (page) => {
+    changedPagesList.push(page);
+    if(page.children){
+      page.children.forEach(child => {
+        flatten(child);
+      });
+    }
+  }
+  flatten(page);
+  return changedPagesList
 }
 
 export default async function updateAllChildrenSlugs(
@@ -68,34 +107,33 @@ export default async function updateAllChildrenSlugs(
   field: any,
 ) {
   const slugFieldKey = Object.keys(field.attributes as object)[0];
+  console.log({
+    new_slug:  field.attributes[slugFieldKey]
+  })
   const client = buildClient({
     apiToken,
   });
-
+  
+  // Get all pages of same type
   const items = (await client.items.list({
     filter: { type: modelID, },
   }));
 
-  const tree = generateTree(items, slugFieldKey);
-  const changedPage = tree[field.id];
-  console.log(changedPage);
+  // Generate page relation tree
+  const tree = generateTree(items, field, slugFieldKey);
 
-  const changeList = [];
-  // const changedFields = Object.values(tree).filter( (page) => {return page.uri !== page[slugFieldKey]});
-  // if (changedFields.length) {
-  //   changedFields.forEach(async (page) => {
-  //     changeList.push(page);
+  // Update page slug that was changed and all nested children
+  // const changedPage = tree[field.id];
+  // const changedPagesList = getChangedPagesList(changedPage);
+  // console.log({changedPage, changedPagesList});
+
+  // if(changedPagesList.length){
+  //   changedPagesList.forEach(async (page) => {
   //     await client.items.update(page.id, {
   //       [slugFieldKey]: page.uri,
   //     });
   //   });
-    
-  //   // Log all changes to console
-  //   console.log(changeList);
-    
-  //   // Run second time 
-  //   // updateAllChildrenSlugs(apiToken, modelID, slugFieldKey);
-  // };
+  // }
 
-  return changeList;
+  return changedPagesList;
 }
