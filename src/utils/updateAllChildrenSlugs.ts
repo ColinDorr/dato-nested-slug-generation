@@ -1,14 +1,6 @@
 // @ts-nocheck
 import { buildClient } from "@datocms/cma-client-browser";
 
-interface PageItem {
-  id: string,
-  slug: string,
-  api_slug_field: string,
-  parent_id: string | null,
-  children?: [PageItem] | [] | null
-}
-
 const addTreeFields = (pages, tree, slugFieldKey) => {
   // Add uri and children to pageObjects.
   pages.forEach(page => {
@@ -22,33 +14,14 @@ const addTreeFields = (pages, tree, slugFieldKey) => {
 }
 
 const getPageUri = (page, changedfield, slugFieldKey, tree) => {
-
-  console.log({
-    slugFieldKey,
-    check: page.id === changedfield.id,
-    changedfield: changedfield.attributes[slugFieldKey],
-    page,
-    treePage:  tree[page.id]
-  })
-
   const slugFieldValue = page.id === changedfield.id && changedfield.attributes[slugFieldKey] ? changedfield.attributes[slugFieldKey] : tree[page.id].uri;
   const uri = slugFieldValue.split('/');
-  console.log({
-    page, changedfield, tree,
-    isChanged: page.id === changedfield.id,
-    pageId: page.id,
-    changedfieldId: changedfield.id,
-    uri: uri,
-    slugFieldValue,
-    result: uri[uri.length - 1]
-  })
   return uri[uri.length - 1]
 }
 
 const addTreeUriAndChildData = (pages, changedfield, slugFieldKey, tree) => {
   pages.forEach(page => {
-    const params = [];
-    
+    const params = [];    
     let currentPage = page;
     while (currentPage && currentPage.parent_id !== null) {      
       // Get URI op parent element.
@@ -68,16 +41,11 @@ const addTreeUriAndChildData = (pages, changedfield, slugFieldKey, tree) => {
     }
 
     // Add current uri and return full path as uri to tree.
-    console.log("uri 2");
     params.push(
-      getPageUri(page.id, changedfield, slugFieldKey, tree)
+      getPageUri(page, changedfield, slugFieldKey, tree)
     );
-    // tree[page.id].uri = `${params.join('/')}`;
+    tree[page.id].uri = `${params.join('/')}`;
   });
-
-  console.log(`Generate tree:____________`);
-  console.log(tree)
-  console.log("__________________________");
   return tree;
 }
 
@@ -87,6 +55,7 @@ const generateTree = (pages, changedfield, slugFieldKey) => {
   tree = addTreeUriAndChildData(pages, changedfield, slugFieldKey, tree);
   return tree;
 }
+
 const getChangedPagesList = (page) => {
   const changedPagesList = [];
   const flatten = (page) => {
@@ -107,9 +76,6 @@ export default async function updateAllChildrenSlugs(
   field: any,
 ) {
   const slugFieldKey = Object.keys(field.attributes as object)[0];
-  console.log({
-    new_slug:  field.attributes[slugFieldKey]
-  })
   const client = buildClient({
     apiToken,
   });
@@ -123,17 +89,15 @@ export default async function updateAllChildrenSlugs(
   const tree = generateTree(items, field, slugFieldKey);
 
   // Update page slug that was changed and all nested children
-  // const changedPage = tree[field.id];
-  // const changedPagesList = getChangedPagesList(changedPage);
-  // console.log({changedPage, changedPagesList});
-
-  // if(changedPagesList.length){
-  //   changedPagesList.forEach(async (page) => {
-  //     await client.items.update(page.id, {
-  //       [slugFieldKey]: page.uri,
-  //     });
-  //   });
-  // }
+  const changedPage = tree[field.id];
+  const changedPagesList = getChangedPagesList(changedPage);
+  if(changedPagesList.length){
+    changedPagesList.forEach(async (page) => {
+      await client.items.update(page.id, {
+        [slugFieldKey]: page.uri,
+      });
+    });
+  }
 
   return changedPagesList;
 }

@@ -71,11 +71,10 @@ connect({
   // Update when page is saved
   async onBeforeItemUpsert(createOrUpdateItemPayload, ctx) {
     const changeList = await handelNestedContent(createOrUpdateItemPayload, ctx);
-
-    console.log(changeList)
     if(changeList.length) {
-      console.log(changeList)
-      ctx.notice(changeList.map(e => e.uri).join(', '));
+      ctx.notice(
+        `The slug of /${changeList[0].uri} and children was updated. Please republish all pages to make the changes final`
+      );
     }
     // Continue normal dato functionalities.
     return true;
