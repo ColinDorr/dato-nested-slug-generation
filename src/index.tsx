@@ -13,14 +13,15 @@ interface SlugFieldData {
   field_prefix: string | null;
   field_updated: any | null;
   field_updated_id: string | null;
+  // current_locale: string | null;
 }
-
 const slug_field_data: SlugFieldData = {
   field_locales: null,
   field_key: null,
   field_prefix: null,
   field_updated: null,
-  field_updated_id: null
+  field_updated_id: null,
+  // current_locale: null
 };
 
 const getFieldKey = (field) => {
@@ -43,6 +44,7 @@ const getUpdatedField = async (createOrUpdateItemPayload) => {
     slug_field_data.field_updated = createOrUpdateItemPayload.data;
     slug_field_data.field_updated_id = createOrUpdateItemPayload.data.id;
     slug_field_data.field_locales = createOrUpdateItemPayload.data.attributes[slug_field_data.field_key];
+    // slug_field_data.current_locale = current_locale;
     return;
   }
 }
@@ -67,6 +69,8 @@ const handelNestedContent = async (createOrUpdateItemPayload, ctx) => {
   // Check if valid slug field is updated
   getUpdatedField(createOrUpdateItemPayload);
 
+  console.log(slug_field_data)
+
   // If slug is not update, return to normal
   if (!slug_field_data.field_updated) { return true; }
 
@@ -75,7 +79,6 @@ const handelNestedContent = async (createOrUpdateItemPayload, ctx) => {
   const modelId = createOrUpdateItemPayload.data.relationships!.item_type!.data.id
   return updateAllChildrenSlugs(apiToken, modelId, slug_field_data);
 }
-
 
 connect({
   // Render plugin config screen
@@ -97,6 +100,7 @@ connect({
   renderFieldExtension(fieldExtensionId: string, ctx: RenderFieldExtensionCtx) {
     switch (fieldExtensionId) {
       case "nested_slug_generation":
+        // console.log(ctx.locale)
         return render(<SlugExtension ctx={ctx} />);
     }
   },
@@ -106,9 +110,13 @@ connect({
     const changeList = await handelNestedContent(createOrUpdateItemPayload, ctx);
 
     if(changeList.length) {
-      ctx.notice(
-        `The slug of /${changeList[0].uri} and children was updated. Please republish all pages to make the changes final`
-      );
+      console.log("_______Changed_slugs________");
+      console.log(changeList);
+      console.log("____________________________");
+      // ctx.notice(
+      //   `The slug of ${changeList[0].title} and children was updated. Please republish all pages to make the changes final`
+      // );
+      return true
     }
     // Continue normal dato functionalities.
     return true;
