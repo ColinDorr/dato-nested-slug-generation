@@ -15,9 +15,14 @@ const globals = {
   modelID: null,
   apiToken: null,
   field_key:null,
+  field_updated:null,
   prefix: null
 } 
 
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// Date formatting Helpers
+// ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // Returns Array with locales keys (multi-language) or null (single langauge) 
 // ['de', 'nl-Nl']
 const getLocales = (field) =>  {
@@ -37,34 +42,44 @@ const getUriSegment = (text:string) =>  {
 
 const loopTroughParentsSlugs = (record, locale) => {
   const params = [];
-  // let current_parent = record;
-  // while (current_parent) {
-  //   params.unshift( 
-  //     getUriSegment(current_parent[globals.field_key][locale])
-  //   );
-  // }
-  // if(globals.prefix){
-  //   params.unshift( 
-  //     getUriSegment(globals.prefix)
-  //   );
-  // }
-  // console.log(params)
-  return params
-}
 
-const generateNewUri = (record, locale) => {
-  console.log("generateNewUri")
-  let params = [];
-  if (locale && typeof record[globals.field_key] === "object" && record[globals.field_key].hasOwnProperty(locale)) {
-    // params = loopTroughParentsSlugs(record, locale)
-  } 
-  else if (typeof record[globals.field_key] !== "object") {
-    // params = loopTroughParentsSlugs(record, locale)
+  let current_parent = record;
+  while (current_parent) {
+    let fieldValue = null;
+    if (locale){
+      fieldValue = globals.field_updated.id === current_parent.id ? globals.field_updated.attributes[globals.field_key][locale] : current_parent[globals.field_key][locale];
+    } else {
+      fieldValue = globals.field_updated.id === current_parent.id ? globals.field_updated.attributes[globals.field_key][locale] : current_parent[globals.field_key][locale];
+    }
+    params.unshift( 
+      getUriSegment(fieldValue)
+    );
+    current_parent = current_parent.parent;
+  }
+
+  if(globals.prefix){
+    params.unshift( 
+      getUriSegment(globals.prefix)
+    );
   }
   return params
 }
 
+const generateNewUri = (record, locale) => {
+  let params = [];
+  if (locale && typeof record[globals.field_key] === "object" && record[globals.field_key].hasOwnProperty(locale)) {
+    params = loopTroughParentsSlugs(record, locale);
+  } 
+  else if (typeof record[globals.field_key] !== "object") {
+    params = loopTroughParentsSlugs(record, locale);
+  }
 
+  // Return full slug
+  if (params && params.includes(null)){
+    return null
+  }
+  return params.join('/');
+}
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // Date queries and generation of nested contend
@@ -94,7 +109,6 @@ const getParentOfRecord = async (childRecord, client = globals.client, modelID =
 } 
 
 const getChildrenOfRecord = async (parentRecord, client = globals.client, modelID = globals.modelID,) => {
-  console.log("getChildrenOfRecord")
   const childRecords = await client.items.list({
     filter: {
       type: modelID,
@@ -115,17 +129,27 @@ const getChildrenOfRecord = async (parentRecord, client = globals.client, modelI
 }
 
 const setRecordFields = async (record, parent = undefined, children = undefined) => {
-  record.uri = record.slug;
-
+  const locales = getLocales(record[globals.field_key]);
+  const uriValue = locales ? {} : null;
   record.parent = 
-    parent === undefined 
-      ? await getParentOfRecord(record) 
-      : parent;
-
+  parent === undefined 
+  ? await getParentOfRecord(record) 
+  : parent;
+  
   record.children = 
-    children === undefined 
-      ? await getChildrenOfRecord(record)
-      : children;
+  children === undefined 
+  ? await getChildrenOfRecord(record)
+  : children;
+  
+  if (locales) {
+    locales.forEach(async (locale) => {
+      uriValue[locale] = generateNewUri(record, locale);
+    });
+  } else {
+    uriValue = generateNewUri(record, locale);
+  }
+  record.uri = uriValue;
+
 
   return record;
 }
@@ -153,6 +177,56 @@ const getCurrentRecord = async (currentId) => {
   return currentRecord;
 }
 
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// DatoCMS mutations
+// ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+const updateEntry = async (record, updateChildren = true) =>  {
+  const client = globals.client;
+  const locales = getLocales(record[globals.field_key]);
+  const updatedUrls = [];
+  
+  if(locales){
+    locales.forEach( async (locale) => {
+      if(record.uri[locale]){
+        // await client.items.update(record.id, {
+        //   [globals.field_key]: `${record.uri[locale]}`,
+        //   code: locale
+        // });
+        updatedUrls.push(record.uri[locale])
+      }
+    })
+  }
+  else{
+    if(record.uri){
+      // await client.items.update(record.id, {
+      //   [globals.field_key]: `${record.uri}`,
+      // });
+      updatedUrls.push(record.uri)
+    }
+  }
+
+  if (updateChildren && record.children && record.children.length > 0){
+    record.children.forEach(child => {
+      const childUrl = updateEntry(child);
+      updatedUrls.contact(childUrl);
+    });
+  }
+  
+  return updatedUrls
+}
+
+const updateRecordAndChildren = async (record) => {
+  const updatedUrls = [];
+
+  // Update current Record
+  // const updatedEntryArray = updateEntry(record);
+  // updatedUrls.concat( updatedEntryArray );
+
+  return updatedUrls;
+}
+
+
 export default async function updateAllChildrenSlugs(
   apiToken: string, 
   modelId: string, 
@@ -163,47 +237,30 @@ export default async function updateAllChildrenSlugs(
   globals.client = buildClient({ apiToken });
   globals.modelID = modelId;
   globals.apiToken = apiToken;
-  globals.field_key =  slug_field_data.field_key;
+  globals.field_key = slug_field_data.field_key;
+  globals.field_updated= slug_field_data.field_updated;
   globals.prefix = slug_field_data.field_prefix;
 
-  // Get Current record with nested parent and child data
+  // Get Current record tree with nested parent and child data
   const currentRecord = await getCurrentRecord( slug_field_data.field_updated.id );
-  console.log(currentRecord)
+  console.log(currentRecord);
 
 
-  // console.log( generateNewUri(currentRecord, "nl-NL") );
+  // TODO: 
+  // - Add working update function
+  // - Test changed pages array result
+
+  // Update all records with their new slugs
+  let changedPagesList_test = []
+  changedPagesList_test = await updateRecordAndChildren(currentRecord);
+  console.log(changedPagesList_test);
 
 
 
+  // TODO
+  // - Return a list with al changed pages
+  // - Rneder the list in the frontend
 
-
-  // console.log(client)
-
-  // const records = await client.items.list({
-  //   filter: {
-  //     type: modelId,
-  //     fields: {
-  //       parent: {
-  //         eq: slug_field_data.field_updated.id,
-  //       },
-  //     },
-  //   },
-  // });
-
-  // console.log(records)
-  
-  // // Get all pages of same type
-  // const allPageItems = (await client.items.list({
-  //   filter: { type: modelId },
-  // }));
-
-  
-  // // Generate page relation tree
-  // const tree = generateTree( allPageItems, slug_field_data);
-  // console.log("_________Tree_______");
-  // console.log(tree);
-  // console.log("____________________");
-  
   // // Update page slug that was changed and all nested children
   // const changedPage = tree[slug_field_data.field_updated_id];
   let changedPagesList = [];
