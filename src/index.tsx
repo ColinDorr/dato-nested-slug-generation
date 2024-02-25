@@ -69,8 +69,6 @@ const handelNestedContent = async (createOrUpdateItemPayload, ctx) => {
   // Check if valid slug field is updated
   getUpdatedField(createOrUpdateItemPayload);
 
-  console.log(slug_field_data)
-
   // If slug is not update, return to normal
   if (!slug_field_data.field_updated) { return true; }
 
