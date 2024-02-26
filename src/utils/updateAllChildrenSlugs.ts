@@ -16,7 +16,8 @@ const globals = {
   apiToken: null,
   field_key:null,
   field_updated:null,
-  prefix: null
+  prefix: null,
+  children: []
 } 
 
 
@@ -87,18 +88,7 @@ const generateNewUri = (record, locale) => {
 const getParentOfRecord = async (childRecord, client = globals.client, modelID = globals.modelID, ) => {
   if(!childRecord.parent_id) { return null }
 
-  const getParentRecord = await client.items.list({
-    filter: {
-      type: modelID,
-      fields: {
-        id: {
-          eq: childRecord.parent_id,
-        },
-      },
-    },
-  });
-
-  const parentRecord = getParentRecord?.[0] || null
+  const parentRecord = await client.items.find( childRecord.parent_id)
 
   if (parentRecord) {
     const parentValue = parentRecord.parent_id ? undefined : null; 
@@ -122,7 +112,9 @@ const getChildrenOfRecord = async (parentRecord, client = globals.client, modelI
 
   if (childRecords.length) {
     childRecords.forEach(async (child) => {
-      return await setRecordFields(child, parentRecord)
+      const childRecord = await setRecordFields(child, parentRecord);
+      globals.children.push(childRecord);
+      return childRecord
     });
   }
   return childRecords;
@@ -181,51 +173,51 @@ const getCurrentRecord = async (currentId) => {
 // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // DatoCMS mutations
 // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-const updateEntry = async (record, updateChildren = true) =>  {
-  const client = globals.client;
+const trowCatchUpdateEntry = async ( record, options, loop = 1, maxTries = 3) => {
+  const client = buildClient({ apiToken: globals.apiToken });
+  record = await client.items.find(record.id);
+  console.log({
+    record, options
+  })
+
+  try {
+    await client.items.update(record.id, options);
+    return { message: "success", record, options }
+  }
+  catch (e) {
+    console.log(e)
+    if(loop < maxTries){
+      trowCatchUpdateEntry(record, options, loop + 1)
+    }
+    return { message: "failed", record, options, e };
+    // throw e;
+  }
+}
+
+const updateEntry = async (record) =>  {
   const locales = getLocales(record[globals.field_key]);
-  const updatedUrls = [];
-  
+  let options = {}
+  let allowUpdate = false;
+  // Update current entry
   if(locales){
     locales.forEach( async (locale) => {
+      const uri = record.uri && record.uri.hasOwnProperty(locale) && record.uri[locale] ? record.uri[locale] : null;
+      options[locale] = {
+        [globals.field_key] : uri
+      }
       if(record.uri[locale]){
-        // await client.items.update(record.id, {
-        //   [globals.field_key]: `${record.uri[locale]}`,
-        //   code: locale
-        // });
-        updatedUrls.push(record.uri[locale])
+        allowUpdate = true
       }
     })
-  }
-  else{
-    if(record.uri){
-      // await client.items.update(record.id, {
-      //   [globals.field_key]: `${record.uri}`,
-      // });
-      updatedUrls.push(record.uri)
+  } 
+  else if(record.uri){
+    options = {
+      [globals.field_key] : record.uri ? uri : null
     }
+    allowUpdate = true;
   }
-
-  if (updateChildren && record.children && record.children.length > 0){
-    record.children.forEach(child => {
-      const childUrl = updateEntry(child);
-      updatedUrls.contact(childUrl);
-    });
-  }
-  
-  return updatedUrls
+  return allowUpdate ? await trowCatchUpdateEntry (record, options) : null;
 }
-
-const updateRecordAndChildren = async (record) => {
-  const updatedUrls = [];
-
-  // Update current Record
-  // const updatedEntryArray = updateEntry(record);
-  // updatedUrls.concat( updatedEntryArray );
-
-  return updatedUrls;
-}
-
 
 export default async function updateAllChildrenSlugs(
   apiToken: string, 
@@ -243,34 +235,18 @@ export default async function updateAllChildrenSlugs(
 
   // Get Current record tree with nested parent and child data
   const currentRecord = await getCurrentRecord( slug_field_data.field_updated.id );
-  console.log(currentRecord);
+  const updatedTree = globals.children.length ? [currentRecord].concat(globals.children) : [currentRecord];
+
+  updatedTree.forEach( async (record) => {
+    const result = await updateEntry(record);
+    console.log(result)
+  });
 
 
   // TODO: 
   // - Add working update function
-  // - Test changed pages array result
-
   // Update all records with their new slugs
-  let changedPagesList_test = []
-  changedPagesList_test = await updateRecordAndChildren(currentRecord);
-  console.log(changedPagesList_test);
-
-
-
-  // TODO
-  // - Return a list with al changed pages
-  // - Rneder the list in the frontend
-
-  // // Update page slug that was changed and all nested children
-  // const changedPage = tree[slug_field_data.field_updated_id];
-  let changedPagesList = [];
-  // changedPagesList = getChangedPagesList(changedPage);
-  // if(changedPagesList.length){
-  //   changedPagesList.forEach(async (page) => {
-  //     const locales = getLocales(slug_field_data, page);
-  //     await updateEntry(client, page, slug_field_data, locales)
-  //   });
-  // }
-
+  let changedPagesList = []
+  // changedPagesList = await updateRecordAndChildren(currentRecord);
   return changedPagesList;
 }
