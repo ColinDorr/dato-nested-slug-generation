@@ -1,38 +1,12 @@
 // @ts-nocheck
-import { LogLevel, buildClient } from "@datocms/cma-client-browser";
-
-interface SlugFieldData {
-  field_locales: {} | string | null;
-  field_key: string | null;
-  field_prefix: string | null;
-  field_updated: any | null;
-  field_updated_id: string | null;
-}
+import { buildClient } from "@datocms/cma-client-browser";
 
 // Variabled
-const globals = {
-  client: null,
-  modelID: null,
-  apiToken: null,
-  field_key:null,
-  field_updated:null,
-  prefix: null,
-  children: []
-} 
-
+let globals = null;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // Date formatting Helpers
 // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-// Returns Array with locales keys (multi-language) or null (single langauge) 
-// ['de', 'nl-Nl']
-const getLocales = (field) =>  {
-  if (field && typeof field === "object") {
-    return Object.keys(field)
-  }
-  return null
-}
-
 // Const pass path of url and only returns last segment 
 // /locaties/amsterdam/kauwgomballenkwartier?test#loc-1 => kauwgomballenkwartier
 const getUriSegment = (text:string) =>  {
@@ -48,9 +22,15 @@ const loopTroughParentsSlugs = (record, locale) => {
   while (current_parent) {
     let fieldValue = null;
     if (locale){
-      fieldValue = globals.field_updated.id === current_parent.id ? globals.field_updated.attributes[globals.field_key][locale] : current_parent[globals.field_key][locale];
+      fieldValue = 
+        globals.field.update_id === current_parent.id 
+          ? globals.field.value[locale] 
+          : current_parent[globals.field.key][locale];
     } else {
-      fieldValue = globals.field_updated.id === current_parent.id ? globals.field_updated.attributes[globals.field_key][locale] : current_parent[globals.field_key][locale];
+      fieldValue = 
+        globals.field_updated.id === current_parent.id 
+          ? globals.field.value
+          : current_parent[globals.field.key];
     }
     params.unshift( 
       getUriSegment(fieldValue)
@@ -58,39 +38,34 @@ const loopTroughParentsSlugs = (record, locale) => {
     current_parent = current_parent.parent;
   }
 
-  if(globals.prefix){
-    params.unshift( 
-      getUriSegment(globals.prefix)
-    );
+  if(globals.field.prefix){
+    params.unshift(getUriSegment(globals.field.prefix));
   }
   return params
 }
 
 const generateNewUri = (record, locale) => {
   let params = [];
-  if (locale && typeof record[globals.field_key] === "object" && record[globals.field_key].hasOwnProperty(locale)) {
+  if (locale && globals.field.localized && record[globals.field.key].hasOwnProperty(locale)) {
     params = loopTroughParentsSlugs(record, locale);
   } 
-  else if (typeof record[globals.field_key] !== "object") {
+  else if (!globals.field.localized) {
     params = loopTroughParentsSlugs(record, locale);
   }
-
-  // Return full slug
-  if (params && params.includes(null)){
-    return null
-  }
-  return params.join('/');
+  return params.includes(null) ? null : params.join('/');
 }
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // Date queries and generation of nested contend
 // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-const getParentOfRecord = async (childRecord, client = globals.client, modelID = globals.modelID, ) => {
+const getParentOfRecord = async (childRecord) => {
   if(!childRecord.parent_id) { return null }
 
-  const parentRecord = await client.items.find( childRecord.parent_id)
+  const client = globals.settings.client;
+  const parentRecord = await client.items.find(childRecord.parent_id)
 
   if (parentRecord) {
+    globals.parents.push(parentRecord);
     const parentValue = parentRecord.parent_id ? undefined : null; 
     return await setRecordFields(parentRecord, parentValue, childRecord)
   }
@@ -98,58 +73,71 @@ const getParentOfRecord = async (childRecord, client = globals.client, modelID =
   return parentRecord;
 } 
 
-const getChildrenOfRecord = async (parentRecord, client = globals.client, modelID = globals.modelID,) => {
-  const childRecords = await client.items.list({
-    filter: {
-      type: modelID,
-      fields: {
-        parent: {
-          eq: parentRecord.id,
+const getChildrenOfRecord = async (parentRecord) => {
+  const modelID = globals.settings.model_id;
+  const client = globals.settings.client;
+  let childRecords = [];
+
+  if (parentRecord.hasOwnProperty("parent_id")){
+    childRecords = await client.items.list({
+      filter: {
+        type: modelID,
+        fields: {
+          parent: {
+            eq: parentRecord.id,
+          },
         },
       },
-    },
-  });
-
-  if (childRecords.length) {
-    childRecords.forEach(async (child) => {
-      const childRecord = await setRecordFields(child, parentRecord);
-      globals.children.push(childRecord);
-      return childRecord
     });
+  
+    if (childRecords.length) {
+      childRecords.forEach(async (child) => {
+        const childRecord = await setRecordFields(child, parentRecord);
+        globals.children.push(childRecord);
+        return childRecord
+      });
+    }
   }
+
   return childRecords;
 }
 
-const setRecordFields = async (record, parent = undefined, children = undefined) => {
-  const locales = getLocales(record[globals.field_key]);
-  const uriValue = locales ? {} : null;
+const setRecordFields = async (
+  record, 
+  parent = undefined, 
+  children = undefined
+) => {
+  const locales = globals.field.locales;
+  let uriValue = locales ? {} : null;
+
+  // Create a parent attribute in record with parentRecord or null
   record.parent = 
-  parent === undefined 
-  ? await getParentOfRecord(record) 
-  : parent;
-  
+    parent === undefined 
+    ? await getParentOfRecord(record) 
+    : parent;
+
+  // Create a children attribute in record with an childrenRecord array or a empty array
   record.children = 
-  children === undefined 
-  ? await getChildrenOfRecord(record)
-  : children;
-  
+    children === undefined 
+    ? await getChildrenOfRecord(record)
+    : children;
+
+  // Create a uri attribute in record with an localised object with uri string, for each site, or a single global string
   if (locales) {
-    locales.forEach(async (locale) => {
-      uriValue[locale] = generateNewUri(record, locale);
-    });
+    locales.forEach( (locale) => { uriValue[locale] = generateNewUri(record, locale); } );
   } else {
-    uriValue = generateNewUri(record, locale);
+    uriValue = generateNewUri(record, null);
   }
   record.uri = uriValue;
-
 
   return record;
 }
 
-const getCurrentRecord = async (currentId) => {
-  const record = await globals.client.items.list({
+const getCurrentRecord = async (currentId:string) => {
+  const client = globals.settings.client
+  const record = await client.items.list({
     filter: {
-      type: globals.modelID,
+      type: globals.settings.model_id,
       fields: {
         id: {
           eq: currentId,
@@ -162,8 +150,8 @@ const getCurrentRecord = async (currentId) => {
   if(currentRecord){
     currentRecord = await setRecordFields(
       currentRecord, // current record => RecordItem
-      currentRecord.parent_id ? await getParentOfRecord( currentRecord ) : null, // parent record result => RecordItem | null
-      await getChildrenOfRecord( currentRecord )  // Child records => [RecordItem] | []
+      currentRecord.parent_id ? await getParentOfRecord(currentRecord) : null, // parent record result => RecordItem | null
+      await getChildrenOfRecord(currentRecord)  // Child records => [RecordItem] | []
     )
   }
   return currentRecord;
@@ -173,19 +161,17 @@ const getCurrentRecord = async (currentId) => {
 // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // DatoCMS mutations
 // ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// TODO !!!
+// DOCS: https://www.datocms.com/docs/content-management-api/resources/item/update
 const trowCatchUpdateEntry = async ( record, options, loop = 1, maxTries = 3) => {
   const client = buildClient({ apiToken: globals.apiToken });
   record = await client.items.find(record.id);
-  console.log({
-    record, options
-  })
-
   try {
     await client.items.update(record.id, options);
     return { message: "success", record, options }
   }
   catch (e) {
-    console.log(e)
+    console.log({record, options, e, })
     if(loop < maxTries){
       trowCatchUpdateEntry(record, options, loop + 1)
     }
@@ -195,51 +181,61 @@ const trowCatchUpdateEntry = async ( record, options, loop = 1, maxTries = 3) =>
 }
 
 const updateEntry = async (record) =>  {
-  const locales = getLocales(record[globals.field_key]);
+  const locales = globals.field.locales
   let options = {}
   let allowUpdate = false;
+
   // Update current entry
   if(locales){
-    locales.forEach( async (locale) => {
-      const uri = record.uri && record.uri.hasOwnProperty(locale) && record.uri[locale] ? record.uri[locale] : null;
-      options[locale] = {
-        [globals.field_key] : uri
+    const localisedValues = locales.reduce((acc, locale) => {
+      acc[locale] = record.uri && record.uri.hasOwnProperty(locale) && record.uri[locale] ? record.uri[locale] : null;
+      return acc;
+    }, {});
+
+    options = {
+      [globals.field.key] : {
+        ...localisedValues
       }
-      if(record.uri[locale]){
-        allowUpdate = true
-      }
-    })
+    }
+    allowUpdate = true
   } 
   else if(record.uri){
     options = {
-      [globals.field_key] : record.uri ? uri : null
+      [globals.field.key] : record.uri ? record.uri  : null
     }
     allowUpdate = true;
   }
   return allowUpdate ? await trowCatchUpdateEntry (record, options) : null;
 }
 
-export default async function updateAllChildrenSlugs(
-  apiToken: string, 
-  modelId: string, 
-  slug_field_data: SlugFieldData
-) {
+export default async function updateAllChildrenSlugs( changed ) {
+  globals = changed;
 
-  // Define global accessible fields
-  globals.client = buildClient({ apiToken });
-  globals.modelID = modelId;
-  globals.apiToken = apiToken;
-  globals.field_key = slug_field_data.field_key;
-  globals.field_updated= slug_field_data.field_updated;
-  globals.prefix = slug_field_data.field_prefix;
+  // // Get Current record tree with nested parent and child data
+  const currentRecord = await getCurrentRecord( globals.field.update_id );
+  const children = globals.children;
 
-  // Get Current record tree with nested parent and child data
-  const currentRecord = await getCurrentRecord( slug_field_data.field_updated.id );
-  const updatedTree = globals.children.length ? [currentRecord].concat(globals.children) : [currentRecord];
+  console.log({
+    globals,
+    currentRecord,
+    children_test: children,
+    children: globals.children,
+    parents: globals.parents,
+  })
+  
+  // TODO Issue with children list
+  const updatedTree = globals.children ? [currentRecord].concat(globals.children) : [currentRecord];
+  
+  
+  
+  // globals.children && globals.children.length ? [currentRecord].concat(globals.children) : [currentRecord];
+
+  console.log(updatedTree)
 
   updatedTree.forEach( async (record) => {
-    const result = await updateEntry(record);
-    console.log(result)
+    // console.log(record)
+    // const result = await updateEntry(record);
+    // console.log(result)
   });
 
 
